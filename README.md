@@ -3,6 +3,8 @@
 KV cacheの正しさ検証・推論速度比較・プロファイルを再現するための作業ディレクトリです。
 `karpathy/llm.c`の`llmc/`実装に依存します。
 
+KTH Applied GPU ProgrammingコースのFinal Projectとして、GPT-2の推論最適化を目的としています。
+
 ## 目的
 - **KV cacheの正しさ検証**: 基準実装（naive）とKV cache版のロジット/トークンを比較。
 - **推論速度比較**: naiveとKV cacheでのtokens/secを測定。
@@ -14,7 +16,20 @@ KV cacheの正しさ検証・推論速度比較・プロファイルを再現す
 - `gpt2_optim/bin/` ビルド成果物
 - `gpt2_optim/notebooks/exp_colab.ipynb` 参考Notebook（Colab用）
 
-## 前提
+## Colab Notebook Demo
+Colab上での実行手順は `notebooks/exp_colab.ipynb` にまとまっています。  
+主な流れは以下です:
+1. `llm.c` をクローンして `download_starter_pack.sh` を実行
+2. `gpt2_optim` をGitHubからクローン
+3. `make all` でビルド
+4. 推論速度比較、KV cache検証、`nsys`プロファイルを順に実行
+
+NotebookはColab用に `nsys` のインストールも含んでいます。
+
+
+## Local実行での前提
+詳細はNotebookを参考にお願いしますが、以下が前提条件です:
+
 - `nvcc`が利用可能
 - `llm.c`リポジトリが手元にあり、`llmc/`が存在
 - チェックポイントとトークナイザ（例: `gpt2_124M.bin`, `gpt2_tokenizer.bin`）
@@ -28,7 +43,7 @@ cd llm.c
 
 ## ビルド
 `LLM_C_ROOT`で`llm.c`のルートを指定します（既定: `../llm.c`）。
-`GPU_COMPUTE_CAPABILITY`は必須です。
+`GPU_COMPUTE_CAPABILITY` (GPU世代の指定) は必須です。
 
 ```bash
 cd gpt2_optim
@@ -59,6 +74,7 @@ nsys profile -t cuda,nvtx \
   -o prof_kvcache \
   ./bin/profile_kvcache_optimization
 ```
+
 
 ## メモ
 - `BF16`やサンプリングを使うと、トークンの完全一致が崩れることがあります。
