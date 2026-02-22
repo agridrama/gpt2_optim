@@ -43,24 +43,20 @@ int main(int argc, char *argv[]) {
     model.inference_only = true;
     gpt2_build_from_checkpoint(&model, load_filename);
 
-    printf("+-----------------------+----------------------------------------------------+\n");
-    printf("| GPT-2 Model Configurations                                                  |\n");
-    printf("+-----------------------+----------------------------------------------------+\n");
-    printf("| max_sequence_length T | %-50d |\n", model.config.max_seq_len);
-    printf("| vocab_size V          | %-50d |\n", model.config.vocab_size);
-    printf("| padded_vocab_size Vp  | %-50d |\n", model.config.padded_vocab_size);
-    printf("| num_layers L          | %-50d |\n", model.config.num_layers);
-    printf("| num_heads NH          | %-50d |\n", model.config.num_heads);
-    printf("| channels C            | %-50d |\n", model.config.channels);
-    printf("| num_parameters        | %-50zu |\n", model.num_parameters);
-    printf("+-----------------------+----------------------------------------------------+\n");
-    printf("| Precision             | %-50s |\n", PRECISION_MODE == PRECISION_FP32 ? "FP32" : (PRECISION_MODE == PRECISION_FP16 ? "FP16" : "BF16"));
-    printf("+-----------------------+----------------------------------------------------+\n");
+    printf("=== KV Cache Validation ===\n");
+    printf("[Run Config]\n");
+    printf("  checkpoint: %s\n", load_filename);
+    printf("  tokenizer:  %s\n", tokenizer_path);
+    printf("  genT:       %d\n", genT);
+    printf("  batch size: %d\n", B);
+    printf("  precision:  %s\n", PRECISION_MODE == PRECISION_FP32 ? "FP32" : (PRECISION_MODE == PRECISION_FP16 ? "FP16" : "BF16"));
+    printf("===========================\n\n");
     fflush(stdout);
 
     context_len = model.config.max_seq_len;
-    if (context_len != 1024) {
-        printf0("Warning: context_len=%d, expected 1024 for GPT-2 small model\n", context_len);
+    if (genT > context_len) {
+        printf0("Warning: genT=%d > context_len=%d, clipping to context length\n", genT, context_len);
+        genT = context_len;
     }
 
 
@@ -87,7 +83,7 @@ int main(int argc, char *argv[]) {
     int V = model.config.vocab_size;
     int Vp = model.config.padded_vocab_size;
 
-    // 1) get baseline logits for first token
+    // 1) get baseline logits for all steps (causal, so one forward is enough)
     float* baseline_logits = (float*)mallocCheck(size_t(B * V) * sizeof(float));
     floatX* baseline_logits_raw = (floatX*)mallocCheck(size_t(B * Vp) * sizeof(floatX)); // for mixed precision
     size_t forward_T = context_len; // avoid index related issues by running full context length
@@ -95,22 +91,6 @@ int main(int argc, char *argv[]) {
     gpt2_forward(&model, gen_tokens, B, forward_T);
 
     floatX* d_logits = model.acts.output; // (B, forward_T, Vp)
-    // cudaMemcpy(baseline_logits_raw, d_logits, (size_t)(B * Vp) * sizeof(floatX), cudaMemcpyDeviceToHost);
-    for (int b = 0; b < B; b++) {
-        cudaCheck(cudaMemcpy(
-            &baseline_logits_raw[b * Vp],
-            &d_logits[b * forward_T * Vp],
-            (size_t)(Vp) * sizeof(floatX),
-            cudaMemcpyDeviceToHost
-        ));
-    }
-
-    // copy to baseline_logits
-    for (int b = 0; b < B; b++) {
-        for (int i = 0; i < V; i++) {
-            baseline_logits[b * V + i] = float(baseline_logits_raw[b * Vp + i]);
-        }
-    }
 
     // 2) run optimized implementation
     float* optimized_logits;
@@ -137,40 +117,81 @@ int main(int argc, char *argv[]) {
         }
         cudaCheck(cudaMemcpy(d_token_ids, h_token_ids, (size_t)B * sizeof(int), cudaMemcpyHostToDevice));
 
-        gpt2_decode_step(&model, &decode_st, d_token_ids, B, 0, d_optimized_logits, main_stream);
-    
-        cudaCheck(cudaMemcpy(h_optimized_logits, d_optimized_logits, (size_t)(B * Vp) * sizeof(floatX), cudaMemcpyDeviceToHost));
-        // copy to optimized_logits
-        for (int b = 0; b < B; b++) {
-            for (int i = 0; i < V; i++) {
-                optimized_logits[b * V + i] = float(h_optimized_logits[b * Vp + i]);
+        printf("Step | max_abs_diff | rmse      | base_max_abs | base_mean_abs | opt_max_abs | opt_mean_abs\n");
+        printf("-----+--------------+-----------+--------------+---------------+-------------+-------------\n");
+
+        for (int t = 0; t < genT; t++) {
+            // copy baseline logits for step t
+            for (int b = 0; b < B; b++) {
+                cudaCheck(cudaMemcpy(
+                    &baseline_logits_raw[b * Vp],
+                    &d_logits[b * forward_T * Vp + t * Vp],
+                    (size_t)(Vp) * sizeof(floatX),
+                    cudaMemcpyDeviceToHost
+                ));
             }
+
+            // copy to baseline_logits
+            for (int b = 0; b < B; b++) {
+                for (int i = 0; i < V; i++) {
+                    baseline_logits[b * V + i] = float(baseline_logits_raw[b * Vp + i]);
+                }
+            }
+
+            // set token ids for step t
+            for (int b = 0; b < B; b++) {
+                h_token_ids[b] = gen_tokens[b * context_len + t];
+            }
+            cudaCheck(cudaMemcpy(d_token_ids, h_token_ids, (size_t)B * sizeof(int), cudaMemcpyHostToDevice));
+
+            gpt2_decode_step(&model, &decode_st, d_token_ids, B, t, d_optimized_logits, main_stream);
+        
+            cudaCheck(cudaMemcpy(h_optimized_logits, d_optimized_logits, (size_t)(B * Vp) * sizeof(floatX), cudaMemcpyDeviceToHost));
+            // copy to optimized_logits
+            for (int b = 0; b < B; b++) {
+                for (int i = 0; i < V; i++) {
+                    optimized_logits[b * V + i] = float(h_optimized_logits[b * Vp + i]);
+                }
+            }
+
+            // 3) compare logits
+            float max_abs_diff = 0.0f;
+            double sum_rmse = 0.0;
+            float base_max_abs = 0.0f;
+            double base_sum_abs = 0.0;
+            float opt_max_abs = 0.0f;
+            double opt_sum_abs = 0.0;
+            for (int b = 0; b < B; b++) {
+                for (int i = 0; i < V; i++) {
+                    float base_v = baseline_logits[b * V + i];
+                    float opt_v = optimized_logits[b * V + i];
+                    float diff = fabsf(opt_v - base_v);
+                    if (diff > max_abs_diff) {
+                        max_abs_diff = diff;
+                    }
+                    sum_rmse += (double)diff * diff;
+                    float base_abs = fabsf(base_v);
+                    float opt_abs = fabsf(opt_v);
+                    if (base_abs > base_max_abs) { base_max_abs = base_abs; }
+                    if (opt_abs > opt_max_abs) { opt_max_abs = opt_abs; }
+                    base_sum_abs += base_abs;
+                    opt_sum_abs += opt_abs;
+                }
+            }
+            double rmse = sqrt(sum_rmse / (B * V));
+            double base_mean_abs = base_sum_abs / (B * V);
+            double opt_mean_abs = opt_sum_abs / (B * V);
+
+            printf("%4d | %12.6f | %9.6f | %12.6f | %13.6f | %11.6f | %11.6f\n",
+                   t, max_abs_diff, (float)rmse, base_max_abs, (float)base_mean_abs, opt_max_abs, (float)opt_mean_abs);
         }
+
         cudaFreeHost(h_optimized_logits);
         decode_state_free(&decode_st);
         gpt2_kvcache_free(&model);
         cudaFree(d_token_ids);
         cudaFreeHost(h_token_ids);
     }
-
-    // 3) compare logits
-    float max_abs_diff = 0.0f;
-    double sum_rmse = 0.0;
-    for (int b = 0; b < B;b++) {
-        for (int i = 0; i < V; i++) {
-            float diff = fabsf(optimized_logits[b*V + i] - baseline_logits[b*V + i]);
-            if (diff > max_abs_diff) {
-                max_abs_diff = diff;
-            }
-            sum_rmse += (double)diff * diff;
-        }
-    }
-    double rmse = sqrt(sum_rmse / (B * V));
-
-    printf("Logits comparison for first token:\n");
-    printf("  Max absolute difference: %.6f\n", max_abs_diff);
-    printf("  RMSE: %.6f\n", rmse);
-    fflush(stdout);
 
     // cleanup
     cudaFreeHost(optimized_logits);
