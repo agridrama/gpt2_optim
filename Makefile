@@ -42,6 +42,7 @@ VALIDATE_SRC := $(SRC_DIR)/validate_kvcache_optimization.cu
 PROFILE_SRC := $(SRC_DIR)/profile_kvcache_optimization.cu
 
 INFERENCE_BIN := $(BIN_DIR)/inference_gpt2optimcu
+INFERENCE_BIN_KVONLY := $(BIN_DIR)/inference_gpt2optimcu_kvonly
 VALIDATE_BIN := $(BIN_DIR)/validate_kvcache_optimization
 PROFILE_BIN := $(BIN_DIR)/profile_kvcache_optimization
 
@@ -49,11 +50,15 @@ INFERENCE_DEPS := $(INFERENCE_SRC) $(wildcard $(SRC_DIR)/inference_optimize/*.cu
 
 .PHONY: all clean
 
-all: $(INFERENCE_BIN) $(VALIDATE_BIN) $(PROFILE_BIN)
+all: $(INFERENCE_BIN) $(INFERENCE_BIN_KVONLY) $(VALIDATE_BIN) $(PROFILE_BIN)
 
 $(INFERENCE_BIN): $(INFERENCE_DEPS)
 	@mkdir -p $(BIN_DIR)
 	$(NVCC) $(NVCC_FLAGS) $(PFLAGS) $(NVCC_INCLUDES) $(INFERENCE_SRC) $(NVCC_LDFLAGS) $(NVCC_LDLIBS) -o $@
+
+$(INFERENCE_BIN_KVONLY): $(INFERENCE_DEPS)
+	@mkdir -p $(BIN_DIR)
+	$(NVCC) $(NVCC_FLAGS) $(PFLAGS) -DDISABLE_OTHER_OPT $(NVCC_INCLUDES) $(INFERENCE_SRC) $(NVCC_LDFLAGS) $(NVCC_LDLIBS) -o $@
 
 $(VALIDATE_BIN): $(VALIDATE_SRC) $(INFERENCE_DEPS)
 	@mkdir -p $(BIN_DIR)
@@ -64,4 +69,4 @@ $(PROFILE_BIN): $(PROFILE_SRC) $(INFERENCE_DEPS)
 	$(NVCC) $(NVCC_FLAGS) $(PFLAGS) $(NVCC_INCLUDES) $(PROFILE_SRC) $(NVCC_LDFLAGS) $(NVCC_LDLIBS) -o $@
 
 clean:
-	rm -f $(INFERENCE_BIN) $(VALIDATE_BIN) $(PROFILE_BIN)
+	rm -f $(INFERENCE_BIN) $(INFERENCE_BIN_KVONLY) $(VALIDATE_BIN) $(PROFILE_BIN)

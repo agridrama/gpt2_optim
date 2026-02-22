@@ -378,7 +378,12 @@ void gpt2_forward(GPT2 *model, const int* inputs, size_t B, size_t T) {
         #endif
 
         matmul_forward_cublaslt(scratch, l_atty, l_attprojw, l_attprojb, B, T, C, C, main_stream);
+#ifdef DISABLE_OTHER_OPT
+        residual_forward(l_residual2, residual, scratch, B * T * C, main_stream);
+        layernorm_forward(l_ln2, l_ln2_mean, l_ln2_rstd, l_residual2, l_ln2w, l_ln2b, B, T, C, main_stream);
+#else
         fused_residual_forward5(l_residual2, l_ln2, l_ln2_mean, l_ln2_rstd, residual, scratch, l_ln2w, l_ln2b, B*T, C, main_stream);
+#endif
 
         // MLP (FFN): C->4C->C with GELU
         matmul_forward_cublaslt(l_fch_gelu, l_ln2, l_fcw, l_fcb, B, T, C, 4*C, main_stream, l_fch, model->gelu_fusion);
@@ -390,12 +395,22 @@ void gpt2_forward(GPT2 *model, const int* inputs, size_t B, size_t T) {
             float* l_ln1_rstd = acts.ln1_rstd + (l + 1) * B * T;
             const floatX* l_ln1w = params.ln1w + (l + 1) * C;
             const floatX* l_ln1b = params.ln1b + (l + 1) * C;
+#ifdef DISABLE_OTHER_OPT
+            residual_forward(l_residual3, l_residual2, scratch, B * T * C, main_stream);
+            layernorm_forward(l_ln1, l_ln1_mean, l_ln1_rstd, l_residual3, l_ln1w, l_ln1b, B, T, C, main_stream);
+#else
             fused_residual_forward5(l_residual3, l_ln1, l_ln1_mean, l_ln1_rstd, l_residual2, scratch, l_ln1w, l_ln1b,
                                     B * T, C, main_stream);
+#endif
         } else {
+#ifdef DISABLE_OTHER_OPT
+            residual_forward(l_residual3, l_residual2, scratch, B * T * C, main_stream);
+            layernorm_forward(acts.lnf, acts.lnf_mean, acts.lnf_rstd, l_residual3, params.lnfw, params.lnfb, B, T, C, main_stream);
+#else
             fused_residual_forward5(l_residual3, acts.lnf, acts.lnf_mean, acts.lnf_rstd, l_residual2, scratch,
                                     params.lnfw, params.lnfb,
                                     B * T, C, main_stream);
+#endif
         }
     }
 
