@@ -219,31 +219,33 @@ int main(int argc, char *argv[]) {
     /* ---------------
         compare results
     --------------- */
-    if (use_argmax) {
-        printf("\nUsing argmax sampling, outputs should match almost identically.\n");
-    } else {
-        printf("\nUsing random sampling, outputs will differ due to different numerical behavior.\n");
-    }
-    printf("\n\nComparing base and KV cache implementations...\n");
-    int mismatch = 0;
-    for (int b = 0; b < B; b++) {
-        printf("\n Batch %d:\n", b);
-        for (int t = 0; t < genT; t++) {
-            if (base_result.tokens[b * context_len + t] != kv_result.tokens[b * context_len + t]) {
-                printf("Mismatch at t=%d: base=%d kv=%d\n", t, base_result.tokens[b * context_len + t], kv_result.tokens[b * context_len + t]);
-                mismatch++;
-                if (mismatch >= 20) break;
-            }
-            #ifdef ENABLE_CUDNN
-            if (base_result.tokens[b * context_len + t] != flash_result.tokens[b * context_len + t]) {
-                printf("Mismatch at t=%d: base=%d flash=%d\n", t, base_result.tokens[b * context_len + t], flash_result.tokens[b * context_len + t]);
-                mismatch++;
-                if (mismatch >= 20) break;
-            }
-            #endif
+    if (!quiet_output) {
+        if (use_argmax) {
+            printf("\nUsing argmax sampling, outputs should match almost identically.\n");
+        } else {
+            printf("\nUsing random sampling, outputs will differ due to different numerical behavior.\n");
         }
+        printf("\n\nComparing base and KV cache implementations...\n");
+        int mismatch = 0;
+        for (int b = 0; b < B; b++) {
+            printf("\n Batch %d:\n", b);
+            for (int t = 0; t < genT; t++) {
+                if (base_result.tokens[b * context_len + t] != kv_result.tokens[b * context_len + t]) {
+                    printf("Mismatch at t=%d: base=%d kv=%d\n", t, base_result.tokens[b * context_len + t], kv_result.tokens[b * context_len + t]);
+                    mismatch++;
+                    if (mismatch >= 20) break;
+                }
+                #ifdef ENABLE_CUDNN
+                if (base_result.tokens[b * context_len + t] != flash_result.tokens[b * context_len + t]) {
+                    printf("Mismatch at t=%d: base=%d flash=%d\n", t, base_result.tokens[b * context_len + t], flash_result.tokens[b * context_len + t]);
+                    mismatch++;
+                    if (mismatch >= 20) break;
+                }
+                #endif
+            }
+        }
+        printf("Token mismatches: %d (showing up to 20)\n", mismatch);
     }
-    printf("Token mismatches: %d (showing up to 20)\n", mismatch);
     
     /* ---------------
         cleanup
