@@ -66,6 +66,7 @@ int main(int argc, char *argv[]) {
     gpt2_allocate_state(&model, B, context_len);
     
     int* gen_tokens = (int*)mallocCheck(B * context_len * sizeof(int));
+    int* ref_tokens = (int*)mallocCheck(B * context_len * sizeof(int));
     int eot_token = tokenizer.eot_token;
     
     for (int i = 0; i < B * context_len; ++i) {
@@ -83,7 +84,7 @@ int main(int argc, char *argv[]) {
     int V = model.config.vocab_size;
     int Vp = model.config.padded_vocab_size;
 
-    // 1) get baseline logits for all steps (causal, so one forward is enough)
+    // 1) baseline logits (single forward for all steps, causal)
     float* baseline_logits = (float*)mallocCheck(size_t(B * V) * sizeof(float));
     floatX* baseline_logits_raw = (floatX*)mallocCheck(size_t(B * Vp) * sizeof(floatX)); // for mixed precision
     size_t forward_T = context_len; // avoid index related issues by running full context length
@@ -92,7 +93,41 @@ int main(int argc, char *argv[]) {
 
     floatX* d_logits = model.acts.output; // (B, forward_T, Vp)
 
-    // 2) run optimized implementation
+    // build reference tokens by greedy (argmax) decoding from baseline logits
+    for (int b = 0; b < B; b++) {
+        for (int t = 0; t < context_len; t++) {
+            ref_tokens[b * context_len + t] = gen_tokens[b * context_len + t];
+        }
+    }
+    for (int t = 0; t < genT; t++) {
+        // copy baseline logits for step t
+        for (int b = 0; b < B; b++) {
+            cudaCheck(cudaMemcpy(
+                &baseline_logits_raw[b * Vp],
+                &d_logits[b * forward_T * Vp + t * Vp],
+                (size_t)(Vp) * sizeof(floatX),
+                cudaMemcpyDeviceToHost
+            ));
+        }
+        // argmax per batch
+        for (int b = 0; b < B; b++) {
+            int best_i = 0;
+            float best_v = float(baseline_logits_raw[b * Vp + 0]);
+            for (int i = 1; i < V; i++) {
+                float v = float(baseline_logits_raw[b * Vp + i]);
+                if (v > best_v) {
+                    best_v = v;
+                    best_i = i;
+                }
+            }
+            // next token goes to position t+1 if within context
+            if (t + 1 < context_len) {
+                ref_tokens[b * context_len + (t + 1)] = best_i;
+            }
+        }
+    }
+
+    // 2) run optimized implementation (teacher forcing with ref_tokens)
     float* optimized_logits;
     cudaCheck(cudaMallocHost(&optimized_logits, (size_t)(B * V) * sizeof(float)));
     floatX* d_optimized_logits;
@@ -140,7 +175,7 @@ int main(int argc, char *argv[]) {
 
             // set token ids for step t
             for (int b = 0; b < B; b++) {
-                h_token_ids[b] = gen_tokens[b * context_len + t];
+                h_token_ids[b] = ref_tokens[b * context_len + t];
             }
             cudaCheck(cudaMemcpy(d_token_ids, h_token_ids, (size_t)B * sizeof(int), cudaMemcpyHostToDevice));
 
@@ -201,6 +236,7 @@ int main(int argc, char *argv[]) {
 
     tokenizer_free(&tokenizer);
     free(gen_tokens);
+    free(ref_tokens);
     gpt2_free(&model);
     multi_gpu_config_free(&multi_gpu_config);
     common_free(model);
