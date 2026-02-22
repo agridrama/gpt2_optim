@@ -2,29 +2,33 @@
 Optimized GPT‑2 inference by introducing KV cache and CUDA kernel tuning, achieving up to 32x speedup on T4.
 ---
 
-KV cacheの正しさ検証・推論速度比較・プロファイルを行いました。
-`karpathy/llm.c`の`llmc/`実装に依存しおり, コミット`1e2ace651495b74ae22d45d1723443fd00ecd3a`で動作確認しています。
+KV cacheによる最適化を行なったGPT-2の正しさ検証・推論速度比較・プロファイルを行いました。
+`karpathy/llm.c`の`llmc/`実装に依存しており、コミット`1e2ace651495b74ae22d45d1723443fd00ecd3a`で動作確認しています。
 
 2025年秋学期 Applied GPU ProgrammingのFinal Projectとして、GPT-2の推論最適化を目的としています。
+`notebooks/exp_colab.ipynb`を使用してGoogle Colab上で実行できます。
 
 ## 目的
-- **KV cacheの正しさ検証**: 基準実装（naive）とKV cache版のロジット/トークンを比較。
 - **推論速度比較**: naiveとKV cacheでのtokens/secを測定。
+- **KV cacheの正しさ検証**: 基準実装（naive）とKV cache版のロジット/トークンを比較。
 - **プロファイル**: KV cacheのdecode stepを`nsys/ncu`で計測。
 
-## 成果
+## 結果
 **naiveとKV cacheのtokens/sec比較**
+
 | Batch Size | Naive (tokens/sec) | KV Cache (tokens/sec) | Speedup |
 | ---------- | ------------------ | --------------------- | ------- |
 | 1          | 22-24              | 426                   | 19x     |
 | 4          | 22-23              | 336                   | 15x     |
 | 16         | 24                 | 780                  | 32x     |
-(生成トークン数: 512, GPU: T4, Precision: BF16, Google Colabで実行)
+
+(生成トークン数: 512、GPU: T4、Precision: BF16、Google Colabで実行)
 
 T4はNaiveの性能が低くなりがちですが、KV cacheの最適化により大幅な性能向上が見られた。
 
 **KV cacheの正しさ検証**
-同一token列を入力したとき, logitsの差が数値誤差の範囲に収まっており, top-3のtoken候補が一致することを確認できます。token idが重複しているのは, バッチを跨いでtop-3を抽出しているためです。
+
+同一token列を入力したとき、logitsの差が数値誤差の範囲に収まっており、top-3のtoken候補が一致することを確認できます。token idが重複しているのは、バッチを跨いでtop-3を抽出しているためです。
 
 | Step | Max Abs Diff | RMSE     | Base Top-3 (token:logit)                      | KV Cache Top-3 (token:logit)                  |
 | ---- | ------------ | -------- | --------------------------------------------- | --------------------------------------------- |
@@ -40,7 +44,7 @@ T4はNaiveの性能が低くなりがちですが、KV cacheの最適化によ�
 
 ## Colab Notebook Demo
 Colab上での実行手順は `notebooks/exp_colab.ipynb` にまとまっています。  
-主な流れは以下です:
+主な流れは以下です。
 1. `llm.c` をクローンして `download_starter_pack.sh` を実行
 2. `gpt2_optim` をGitHubからクローン
 3. `make all` でビルド
@@ -50,11 +54,11 @@ NotebookはColab用に `nsys` のインストールも含んでいます。
 
 
 ## Local実行での前提
-詳細はNotebookを参考にお願いしますが、以下が前提条件です:
+詳細はNotebookを参考にお願いしますが、以下が前提条件です。
 
 - `nvcc`が利用可能
 - `llm.c`リポジトリが手元にあり、`llmc/`が存在
-- チェックポイントとトークナイザ（例: `gpt2_124M.bin`, `gpt2_tokenizer.bin`）
+- チェックポイントとトークナイザ（例: `gpt2_124M.bin`、`gpt2_tokenizer.bin`）
 
 `llm.c`の取得例:
 ```bash
