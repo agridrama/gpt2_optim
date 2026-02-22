@@ -85,8 +85,8 @@ int main(int argc, char *argv[]) {
         }
         cudaCheck(cudaMemcpy(d_token_ids, h_token_ids, (size_t)B * sizeof(int), cudaMemcpyHostToDevice));
         
-        float* d_optimized_logits;
-        cudaCheck(cudaMalloc(&d_optimized_logits, (size_t)(B * Vp) * sizeof(float)));
+        floatX* d_optimized_logits;
+        cudaCheck(cudaMalloc(&d_optimized_logits, (size_t)(B * Vp) * sizeof(floatX)));
 
         // run warm-up and profiled runs
         for (int run = 0; run < num_warmup; run++) {
