@@ -32,10 +32,12 @@ int main(int argc, char *argv[]) {
     int genT = 64;
     int context_len = -1;
     int override_enable_tf32 = 1;
-        for (int i = 1; i < argc; i += 2) {
+    for (int i = 1; i < argc; i += 2) {
         // if (i + 1 >= argc || argv[i][0] != '-') { error_usage(); }
         std::string flag(argv[i]);
-        if (flag == "-g") { genT = atoi(argv[i+1]); }
+        if (flag == "-e") { load_filename = argv[i+1]; }
+        else if (flag == "-tk") { tokenizer_path = argv[i+1]; }
+        else if (flag == "-g") { genT = atoi(argv[i+1]); }
         else if (flag == "-b") { B = atoi(argv[i+1]); }
         // else { error_usage(); }
     }
