@@ -111,10 +111,21 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < genT - 1; i++) {
         coins[i] = random_f32(&sample_rng_state);
     }
+
+    printf0("=== GPT-2 Inference (gpt2_optim) ===\n");
+    printf0("[Run Config]\n");
+    printf0("  checkpoint: %s\n", load_filename);
+    printf0("  tokenizer:  %s\n", tokenizer_path);
+    printf0("  genT:       %d\n", genT);
+    printf0("  batch size: %d\n", B);
+    printf0("  sampling:   %s\n", use_argmax ? "argmax" : "random");
+    printf0("  validation: %s\n", validation_mode ? "on" : "off");
+    printf0("===================================\n\n");
     
     /* ----------------
      run inference with base implementation
     ---------------- */
+    printf0("=== Section: Naive Inference (Baseline) ===\n");
     InferenceResult base_result;
     inference_result_init(&base_result, genT, context_len, B);
     InferenceScratch scratch;
@@ -140,6 +151,7 @@ int main(int argc, char *argv[]) {
     /* ----------------
      run inference with KV cache implementation
     ---------------- */
+    printf0("\n=== Section: KV Cache Inference ===\n");
     InferenceResult kv_result;
     inference_result_init(&kv_result, genT, context_len, B);
     inference_scratch_init(&scratch, &model, B);
