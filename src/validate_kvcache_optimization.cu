@@ -156,8 +156,8 @@ int main(int argc, char *argv[]) {
         }
         cudaCheck(cudaMemcpy(d_token_ids, h_token_ids, (size_t)B * sizeof(int), cudaMemcpyHostToDevice));
 
-        printf("Step | max_abs_diff | rmse      | base_max_abs | base_mean_abs | opt_max_abs | opt_mean_abs\n");
-        printf("-----+--------------+-----------+--------------+---------------+-------------+-------------\n");
+        printf("Step | max_abs_diff | rmse      | base_max_abs | opt_max_abs | base_top3(token:val)                 | opt_top3(token:val)\n");
+        printf("-----+--------------+-----------+--------------+-------------+-------------------------------------+-------------------------------------\n");
 
         for (int t = 0; t < genT; t++) {
             // copy baseline logits for step t
@@ -197,9 +197,11 @@ int main(int argc, char *argv[]) {
             float max_abs_diff = 0.0f;
             double sum_rmse = 0.0;
             float base_max_abs = 0.0f;
-            double base_sum_abs = 0.0;
             float opt_max_abs = 0.0f;
-            double opt_sum_abs = 0.0;
+            int base_top_idx[3] = {0, 0, 0};
+            float base_top_val[3] = {-1e30f, -1e30f, -1e30f};
+            int opt_top_idx[3] = {0, 0, 0};
+            float opt_top_val[3] = {-1e30f, -1e30f, -1e30f};
             for (int b = 0; b < B; b++) {
                 for (int i = 0; i < V; i++) {
                     float base_v = baseline_logits[b * V + i];
@@ -213,16 +215,37 @@ int main(int argc, char *argv[]) {
                     float opt_abs = fabsf(opt_v);
                     if (base_abs > base_max_abs) { base_max_abs = base_abs; }
                     if (opt_abs > opt_max_abs) { opt_max_abs = opt_abs; }
-                    base_sum_abs += base_abs;
-                    opt_sum_abs += opt_abs;
+
+                    // track top-3 per batch aggregated (keep overall top-3 across all batches)
+                    if (base_v > base_top_val[0]) {
+                        base_top_val[2] = base_top_val[1]; base_top_idx[2] = base_top_idx[1];
+                        base_top_val[1] = base_top_val[0]; base_top_idx[1] = base_top_idx[0];
+                        base_top_val[0] = base_v;          base_top_idx[0] = i;
+                    } else if (base_v > base_top_val[1]) {
+                        base_top_val[2] = base_top_val[1]; base_top_idx[2] = base_top_idx[1];
+                        base_top_val[1] = base_v;          base_top_idx[1] = i;
+                    } else if (base_v > base_top_val[2]) {
+                        base_top_val[2] = base_v;          base_top_idx[2] = i;
+                    }
+
+                    if (opt_v > opt_top_val[0]) {
+                        opt_top_val[2] = opt_top_val[1]; opt_top_idx[2] = opt_top_idx[1];
+                        opt_top_val[1] = opt_top_val[0]; opt_top_idx[1] = opt_top_idx[0];
+                        opt_top_val[0] = opt_v;          opt_top_idx[0] = i;
+                    } else if (opt_v > opt_top_val[1]) {
+                        opt_top_val[2] = opt_top_val[1]; opt_top_idx[2] = opt_top_idx[1];
+                        opt_top_val[1] = opt_v;          opt_top_idx[1] = i;
+                    } else if (opt_v > opt_top_val[2]) {
+                        opt_top_val[2] = opt_v;          opt_top_idx[2] = i;
+                    }
                 }
             }
             double rmse = sqrt(sum_rmse / (B * V));
-            double base_mean_abs = base_sum_abs / (B * V);
-            double opt_mean_abs = opt_sum_abs / (B * V);
 
-            printf("%4d | %12.6f | %9.6f | %12.6f | %13.6f | %11.6f | %11.6f\n",
-                   t, max_abs_diff, (float)rmse, base_max_abs, (float)base_mean_abs, opt_max_abs, (float)opt_mean_abs);
+            printf("%4d | %12.6f | %9.6f | %12.6f | %11.6f | %5d:%9.4f %5d:%9.4f %5d:%9.4f | %5d:%9.4f %5d:%9.4f %5d:%9.4f\n",
+                   t, max_abs_diff, (float)rmse, base_max_abs, opt_max_abs,
+                   base_top_idx[0], base_top_val[0], base_top_idx[1], base_top_val[1], base_top_idx[2], base_top_val[2],
+                   opt_top_idx[0], opt_top_val[0], opt_top_idx[1], opt_top_val[1], opt_top_idx[2], opt_top_val[2]);
         }
 
         cudaFreeHost(h_optimized_logits);
