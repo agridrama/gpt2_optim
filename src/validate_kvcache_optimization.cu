@@ -127,6 +127,10 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    // Recompute baseline logits using ref_tokens so both paths share the same context
+    gpt2_forward(&model, ref_tokens, B, forward_T);
+    d_logits = model.acts.output; // (B, forward_T, Vp)
+
     // 2) run optimized implementation (teacher forcing with ref_tokens)
     float* optimized_logits;
     cudaCheck(cudaMallocHost(&optimized_logits, (size_t)(B * V) * sizeof(float)));
