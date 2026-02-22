@@ -29,6 +29,7 @@ void error_usage() {
     fprintf(stderr, "  -b  <int>      batch size (default = 4)\n");
     fprintf(stderr, "  -m  <int>      sampling method (default = 0: random, else: argmax)\n");               
     fprintf(stderr, "  -v  <int>      validation mode (default = 0, set to 1 to enable)\n");
+    fprintf(stderr, "  -q  <int>      quiet output (default = 0, set to 1 for tokens/sec only)\n");
     exit(EXIT_FAILURE);
 }
 // ----------------------------------------------------------------------------
@@ -47,6 +48,7 @@ int main(int argc, char *argv[]) {
     int override_enable_tf32 = 1;
     bool use_argmax = true;
     bool validation_mode = false;
+    bool quiet_output = false;
 
     for (int i = 1; i < argc; i += 2) {
         if (i + 1 >= argc || argv[i][0] != '-') { error_usage(); }
@@ -59,6 +61,7 @@ int main(int argc, char *argv[]) {
         else if (flag == "-b") { B = atoi(argv[i+1]); }
         else if (flag == "-m") { use_argmax = atoi(argv[i+1]) != 0; }
         else if (flag == "-v") { validation_mode = atoi(argv[i+1]) != 0; }
+        else if (flag == "-q") { quiet_output = atoi(argv[i+1]) != 0; }
         else { error_usage(); }
     }
 
@@ -112,20 +115,24 @@ int main(int argc, char *argv[]) {
         coins[i] = random_f32(&sample_rng_state);
     }
 
-    printf0("=== GPT-2 Inference (gpt2_optim) ===\n");
-    printf0("[Run Config]\n");
-    printf0("  checkpoint: %s\n", load_filename);
-    printf0("  tokenizer:  %s\n", tokenizer_path);
-    printf0("  genT:       %d\n", genT);
-    printf0("  batch size: %d\n", B);
-    printf0("  sampling:   %s\n", use_argmax ? "argmax" : "random");
-    printf0("  validation: %s\n", validation_mode ? "on" : "off");
-    printf0("===================================\n\n");
+    if (!quiet_output) {
+        printf0("=== GPT-2 Inference (gpt2_optim) ===\n");
+        printf0("[Run Config]\n");
+        printf0("  checkpoint: %s\n", load_filename);
+        printf0("  tokenizer:  %s\n", tokenizer_path);
+        printf0("  genT:       %d\n", genT);
+        printf0("  batch size: %d\n", B);
+        printf0("  sampling:   %s\n", use_argmax ? "argmax" : "random");
+        printf0("  validation: %s\n", validation_mode ? "on" : "off");
+        printf0("===================================\n\n");
+    }
     
     /* ----------------
      run inference with base implementation
     ---------------- */
-    printf0("=== Section: Naive Inference (Baseline) ===\n");
+    if (!quiet_output) {
+        printf0("=== Section: Naive Inference (Baseline) ===\n");
+    }
     InferenceResult base_result;
     inference_result_init(&base_result, genT, context_len, B);
     InferenceScratch scratch;
@@ -135,23 +142,29 @@ int main(int argc, char *argv[]) {
                     /*stream=*/main_stream,
                     /*use_argmax=*/use_argmax,
                     validation_mode);
-    printf0("\nBase implementation: total time = %.2f ms, forward time = %.2f ms\n",
-            base_result.total_ms, base_result.forward_ms);
-    printf0("Token per second: %.2f\n",
-            (double)(B * genT) / (base_result.total_ms / 1000.0));
-    printf0("Generated tokens:\n");
-    for(int b = 0; b < B; b++) {
-        printf0("Batch %d:\n", b);
-        for (int t = 0; t < genT; t++) {
-            safe_printf(tokenizer_decode(&tokenizer, base_result.tokens[b * context_len + t]));
+    double base_tps = (double)(B * genT) / (base_result.total_ms / 1000.0);
+    if (quiet_output) {
+        printf0("base_tokens_per_sec: %.2f\n", base_tps);
+    } else {
+        printf0("\nBase implementation: total time = %.2f ms, forward time = %.2f ms\n",
+                base_result.total_ms, base_result.forward_ms);
+        printf0("Token per second: %.2f\n", base_tps);
+        printf0("Generated tokens:\n");
+        for(int b = 0; b < B; b++) {
+            printf0("Batch %d:\n", b);
+            for (int t = 0; t < genT; t++) {
+                safe_printf(tokenizer_decode(&tokenizer, base_result.tokens[b * context_len + t]));
+            }
+            printf0("\n===\n");
         }
-        printf0("\n===\n");
     }
     
     /* ----------------
      run inference with KV cache implementation
     ---------------- */
-    printf0("\n=== Section: KV Cache Inference ===\n");
+    if (!quiet_output) {
+        printf0("\n=== Section: KV Cache Inference ===\n");
+    }
     InferenceResult kv_result;
     inference_result_init(&kv_result, genT, context_len, B);
     inference_scratch_init(&scratch, &model, B);
@@ -160,17 +173,21 @@ int main(int argc, char *argv[]) {
                       main_stream,
                         /*use_argmax=*/use_argmax,
                         validation_mode);
-    printf0("\nKV Cache implementation: total time = %.2f ms, forward time = %.2f ms\n",
-            kv_result.total_ms, kv_result.forward_ms);
-    printf0("Token per second: %.2f\n",
-            (double)(B * genT) / (kv_result.total_ms / 1000.0));
-    printf0("Generated tokens:\n");
-    for(int b = 0; b < B; b++) {
-        printf0("Batch %d:\n", b);
-        for (int t = 0; t < genT; t++) {
-            safe_printf(tokenizer_decode(&tokenizer, kv_result.tokens[b * context_len + t]));
+    double kv_tps = (double)(B * genT) / (kv_result.total_ms / 1000.0);
+    if (quiet_output) {
+        printf0("kvcache_tokens_per_sec: %.2f\n", kv_tps);
+    } else {
+        printf0("\nKV Cache implementation: total time = %.2f ms, forward time = %.2f ms\n",
+                kv_result.total_ms, kv_result.forward_ms);
+        printf0("Token per second: %.2f\n", kv_tps);
+        printf0("Generated tokens:\n");
+        for(int b = 0; b < B; b++) {
+            printf0("Batch %d:\n", b);
+            for (int t = 0; t < genT; t++) {
+                safe_printf(tokenizer_decode(&tokenizer, kv_result.tokens[b * context_len + t]));
+            }
+            printf0("\n===\n");
         }
-        printf0("\n===\n");
     }
 
     #ifdef ENABLE_CUDNN
