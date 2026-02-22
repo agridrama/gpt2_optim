@@ -152,7 +152,7 @@ int main(int argc, char *argv[]) {
         }
         cudaCheck(cudaMemcpy(d_token_ids, h_token_ids, (size_t)B * sizeof(int), cudaMemcpyHostToDevice));
 
-        printf("Step | max_abs_diff | rmse      | base_top3(token:val)                             | opt_top3(token:val)\n");
+        printf("Step | max_abs_diff | rmse      | base_top3(token:val)                            | opt_top3(token:val)\n");
         printf("-----+--------------+-----------+-------------------------------------------------+-------------------------------------------------\n");
 
         for (int t = 0; t < genT; t++) {
