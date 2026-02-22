@@ -156,8 +156,8 @@ int main(int argc, char *argv[]) {
         }
         cudaCheck(cudaMemcpy(d_token_ids, h_token_ids, (size_t)B * sizeof(int), cudaMemcpyHostToDevice));
 
-        printf("Step | max_abs_diff | rmse      | base_max_abs | opt_max_abs | base_top3(token:val)                 | opt_top3(token:val)\n");
-        printf("-----+--------------+-----------+--------------+-------------+-------------------------------------+-------------------------------------\n");
+        printf("Step | max_abs_diff | rmse      | base_top3(token:val)                 | opt_top3(token:val)\n");
+        printf("-----+--------------+-----------+-------------------------------------+-------------------------------------\n");
 
         for (int t = 0; t < genT; t++) {
             // copy baseline logits for step t
@@ -196,8 +196,6 @@ int main(int argc, char *argv[]) {
             // 3) compare logits
             float max_abs_diff = 0.0f;
             double sum_rmse = 0.0;
-            float base_max_abs = 0.0f;
-            float opt_max_abs = 0.0f;
             int base_top_idx[3] = {0, 0, 0};
             float base_top_val[3] = {-1e30f, -1e30f, -1e30f};
             int opt_top_idx[3] = {0, 0, 0};
@@ -211,11 +209,6 @@ int main(int argc, char *argv[]) {
                         max_abs_diff = diff;
                     }
                     sum_rmse += (double)diff * diff;
-                    float base_abs = fabsf(base_v);
-                    float opt_abs = fabsf(opt_v);
-                    if (base_abs > base_max_abs) { base_max_abs = base_abs; }
-                    if (opt_abs > opt_max_abs) { opt_max_abs = opt_abs; }
-
                     // track top-3 per batch aggregated (keep overall top-3 across all batches)
                     if (base_v > base_top_val[0]) {
                         base_top_val[2] = base_top_val[1]; base_top_idx[2] = base_top_idx[1];
@@ -242,8 +235,8 @@ int main(int argc, char *argv[]) {
             }
             double rmse = sqrt(sum_rmse / (B * V));
 
-            printf("%4d | %12.6f | %9.6f | %12.6f | %11.6f | %5d:%9.4f %5d:%9.4f %5d:%9.4f | %5d:%9.4f %5d:%9.4f %5d:%9.4f\n",
-                   t, max_abs_diff, (float)rmse, base_max_abs, opt_max_abs,
+            printf("%4d | %12.6f | %9.6f | %5d:%9.4f %5d:%9.4f %5d:%9.4f | %5d:%9.4f %5d:%9.4f %5d:%9.4f\n",
+                   t, max_abs_diff, (float)rmse,
                    base_top_idx[0], base_top_val[0], base_top_idx[1], base_top_val[1], base_top_idx[2], base_top_val[2],
                    opt_top_idx[0], opt_top_val[0], opt_top_idx[1], opt_top_val[1], opt_top_idx[2], opt_top_val[2]);
         }
