@@ -64,26 +64,22 @@ int main(int argc, char *argv[]) {
     tokenizer_init(&tokenizer, tokenizer_path);
 
     gpt2_allocate_state(&model, B, context_len);
+    int V = model.config.vocab_size;
+    int Vp = model.config.padded_vocab_size;
     
     int* gen_tokens = (int*)mallocCheck(B * context_len * sizeof(int));
     int* ref_tokens = (int*)mallocCheck(B * context_len * sizeof(int));
-    int eot_token = tokenizer.eot_token;
-    
+
+    // random initialization to avoid degenerate token dominance
+    srand(1337);
     for (int i = 0; i < B * context_len; ++i) {
-        if (i % context_len == 0) {
-            gen_tokens[i] = 43*(i / context_len); // some random token, 43*B < vocab_size
-        } else {
-            gen_tokens[i] = eot_token;
-        }
-    } // fill gen_tokens with eot for base implementation,
+        gen_tokens[i] = rand() % V;
+    }
 
 
     /* ---------------
      validate correctness and measure performance
     --------------- */
-    int V = model.config.vocab_size;
-    int Vp = model.config.padded_vocab_size;
-
     // 1) baseline logits (single forward for all steps, causal)
     float* baseline_logits = (float*)mallocCheck(size_t(B * V) * sizeof(float));
     floatX* baseline_logits_raw = (floatX*)mallocCheck(size_t(B * Vp) * sizeof(floatX)); // for mixed precision
